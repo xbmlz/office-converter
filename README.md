@@ -25,7 +25,7 @@ office-converter = "0.1.0"
 Then, on your `main.rs`
 
 ```rust
-use office_converter::{OfficeManager, OfficeConverter};
+use office_converter::{OfficeManager, Converter};
 
 fn main() {
 
