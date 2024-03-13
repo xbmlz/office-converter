@@ -1,0 +1,135 @@
+import argparse
+import logging
+import uno
+from pathlib import Path
+from com.sun.star.beans import PropertyValue
+from com.sun.star.connection import NoConnectException
+    
+
+logger = logging.getLogger("unoconv")
+
+DOC_TYPES = {
+    "com.sun.star.sheet.SpreadsheetDocument",
+    "com.sun.star.text.TextDocument",
+    "com.sun.star.presentation.PresentationDocument",
+    "com.sun.star.drawing.DrawingDocument",
+    "com.sun.star.sdb.DocumentDataSource",
+    "com.sun.star.formula.FormulaProperties",
+    "com.sun.star.script.BasicIDE",
+    "com.sun.star.text.WebDocument",  # Supposedly deprecated? But still around.
+}
+
+
+def get_doc_type(doc):
+    for t in DOC_TYPES:
+        if doc.supportsService(t):
+            return t
+
+
+def prop2dict(properties):
+    return {p.Name: p.Value for p in properties}
+
+
+def get_available_export_filters(export_filters):
+    while export_filters.hasMoreElements():
+        # Filter DocumentService here
+        yield prop2dict(export_filters.nextElement())
+
+
+def get_available_import_filters(import_filters):
+    while import_filters.hasMoreElements():
+        # Filter DocumentService here
+        yield prop2dict(import_filters.nextElement())
+
+
+def find_filter(export_filters, import_type, export_type):
+    for export_filter in get_available_export_filters(export_filters):
+        if export_filter["DocumentService"] != import_type:
+            continue
+        if export_filter["Type"] != export_type:
+            continue
+
+        # There is only one possible filter per import and export type,
+        # so the first one we find is correct
+        return export_filter["Name"]
+    # No filter found
+    return None
+
+
+def main():
+    # unoconv.py a.pdf -o b.docx -p 8777 -h 127.0.0.1
+    parser = argparse.ArgumentParser(description="Document Converter")
+    parser.add_argument("input", type=str, help="input file")
+    parser.add_argument("-O", "--output", type=str, help="output file")
+    parser.add_argument("-P", "--port", type=int, help="port", default="2002")
+    parser.add_argument("-H", "--host", type=str, help="host", default="127.0.0.1")
+    args = parser.parse_args()
+
+    input_path = args.input
+    output_path = args.output
+    host = args.host
+    port = args.port
+
+    if not Path(input_path).exists():
+        raise RuntimeError(f"Path {input} does not exist.")
+
+    in_file_url = uno.systemPathToFileUrl(input_path)
+    out_file_url = uno.systemPathToFileUrl(output_path)
+
+    local_context = uno.getComponentContext()
+    resolver = local_context.ServiceManager.createInstanceWithContext(
+        "com.sun.star.bridge.UnoUrlResolver", local_context
+    )
+    try:
+        context = resolver.resolve(
+            f"uno:socket,host={host},port={port};urp;StarOffice.ComponentContext"
+        )
+    except NoConnectException:
+        raise Exception("Cannot establish a connection to LibreOffice.")
+
+    service = context.ServiceManager
+    desktop = service.createInstanceWithContext("com.sun.star.frame.Desktop", context)
+    type_service = service.createInstanceWithContext(
+        "com.sun.star.document.TypeDetection", context
+    )
+    filter_service = service.createInstanceWithContext(
+        "com.sun.star.document.FilterFactory", context
+    )
+
+    export_filters = filter_service.createSubSetEnumerationByQuery(
+        "getSortedFilterList():iflags=2"
+    )
+
+    input_props = (PropertyValue(Name="ReadOnly", Value=True),)
+
+    document = desktop.loadComponentFromURL(in_file_url, "_default", 0, input_props)
+
+    if document is None:
+        raise RuntimeError("Could not load document {inpath}")
+
+    try:
+        import_type = get_doc_type(document)
+        logger.debug(f"import_type: {import_type}")
+
+        export_type = type_service.queryTypeByURL(out_file_url)
+
+        logger.debug(f"export_type: {export_type}")
+
+        filter_name = find_filter(export_filters, import_type, export_type)
+        logger.debug(f"filter_name: {filter_name}")
+
+        document.storeToURL(
+            out_file_url,
+            (
+                PropertyValue(Name="Overwrite", Value=True),
+                PropertyValue(Name="FilterName", Value=filter_name),
+            ),
+        )
+    finally:
+        document.dispose()
+
+    logger.debug(f"converted {input_path} to {output_path}")
+
+
+if __name__ == "__main__":
+    main()

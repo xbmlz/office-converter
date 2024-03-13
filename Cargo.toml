@@ -1,0 +1,15 @@
+[package]
+name = "office-converter"
+version = "0.1.0"
+edition = "2021"
+documentation = "https://docs.rs/office-converter"
+repository = "https://github.com/xbmlz/office-converter"
+homepage = "https://github.com/xbmlz/office-converter"
+description = "Universal Office Converter - Convert between any document format supported by LibreOffice/OpenOffice."
+readme = "README.md"
+categories = ["API bindings"]
+keywords = ["Office", "Converter", "LibreOffice", "OpenOffice"]
+license = "MIT"
+authors = ["xbmlz <chenxc170016@gmail.com>"]
+
+[dependencies]
